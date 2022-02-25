@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ajakteman
+  namespace: pintaria
+spec:
+  selector:
+    matchLabels:
+      app: ajakteman
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 1
+  template:
+    metadata:
+      annotations:
+        iam.amazonaws.com/role: fluentd-log-sa
+      labels:
+        app: ajakteman
+    spec:
+      containers:
+        - name: ajakteman
+          image: 659168899707.dkr.ecr.ap-southeast-1.amazonaws.com/pintaria-poinpintar-development:version_tag
+          resources:
+            requests:
+              cpu: 10m
+              memory: 10Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          ports:
+            - containerPort: 80
+              protocol: TCP
+              #          readinessProbe:
+              #            httpGet:
+              #              path: /healthz
+              #              port: 80
+              #            initialDelaySeconds: 30
+              #            periodSeconds: 5
+              #            successThreshold: 1
+          volumeMounts:
+          - mountPath: /apps/storage/logs
+            name: storage
+            subPath: production/ajakteman/storage/logs
+          - mountPath: /apps/.env
+            name: env-file
+            readOnly: true
+            subPath: .env
+        - name: fluentd
+          image: fluent/fluentd-kubernetes-daemonset:v1.9.3-debian-cloudwatch-1.0
+          env:
+          - name: REGION
+            value: ap-southeast-1
+          - name: AWS_REGION
+            value: ap-southeast-1
+          - name: CLUSTER_NAME
+            value: eks-staging-cluster
+          - name: CI_VERSION
+            value: "k8s/1.0.1"
+          resources:
+            limits:
+              memory: 400Mi
+            requests:
+              cpu: 100m
+              memory: 200Mi
+          volumeMounts:
+          - name: fluentdconf
+            mountPath: /fluentd/etc
+          - name: storage
+            mountPath: /apps/storage/logs
+            subPath: production/ajakteman/storage/logs
+      serviceAccount: fluentd-log-sa
+      serviceAccountName: fluentd-log-sa
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: development-ajakteman-storage-claim
+      - name: fluentdconf
+        configMap: 
+          name: fluentd-ajakteman-log-config
+      - configMap:
+          defaultMode: 509
+          items:
+          - key: .env
+            path: .env
+          name: ajakteman-env
+        name: env-file
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "ajakteman"
+  namespace: pintaria
+  labels:
+    app: ajakteman
+spec:
+  type: NodePort
+  ports:
+    - port: 8080
+      name: script
+    - port: 80
+      name: apps
+  selector:
+    app: ajakteman
+
